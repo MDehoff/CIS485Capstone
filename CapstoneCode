@@ -1,0 +1,94 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+st.set_page_config(page_title="Pitcher Health Dashboard", layout="wide")
+
+st.title("⚾ Pitcher Performance & Health Dashboard")
+
+st.markdown("Upload your pitching CSV file to analyze averages and health indicators.")
+
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
+
+    st.subheader("Raw Data")
+    st.dataframe(df)
+
+    st.subheader("📊 Averages")
+
+    numeric_cols = [
+        "velocity_mph",
+        "spin_rate_rpm",
+        "horiz_break_in",
+        "vert_break_in",
+        "release_height_ft",
+        "release_side_ft",
+        "release_consistency_score"
+    ]
+
+    averages = df[numeric_cols].mean()
+    st.write(averages)
+
+    st.subheader("📉 Release Point Variability (Injury Indicator)")
+
+    release_height_std = df["release_height_ft"].std()
+    release_side_std = df["release_side_ft"].std()
+
+    st.write("Release Height Std Dev:", round(release_height_std, 3))
+    st.write("Release Side Std Dev:", round(release_side_std, 3))
+
+    st.subheader("⚠️ Health Risk Flags")
+
+    velocity_drop = df["velocity_mph"].iloc[0] - df["velocity_mph"].iloc[-1]
+    spin_drop = df["spin_rate_rpm"].iloc[0] - df["spin_rate_rpm"].iloc[-1]
+    consistency_avg = df["release_consistency_score"].mean()
+
+    risk_messages = []
+
+    if velocity_drop > 1.5:
+        risk_messages.append("⚠️ Significant velocity drop detected.")
+
+    if spin_drop > 150:
+        risk_messages.append("⚠️ Spin rate drop detected.")
+
+    if release_height_std > 0.15:
+        risk_messages.append("⚠️ Release height variability increasing.")
+
+    if consistency_avg < 88:
+        risk_messages.append("⚠️ Low release consistency.")
+
+    if len(risk_messages) == 0:
+        st.success("✅ No major red flags detected.")
+    else:
+        for msg in risk_messages:
+            st.error(msg)
+
+    st.subheader("🧠 Key Metrics to Keep Pitchers Healthy")
+
+    st.markdown("""
+    Based on sports science and biomechanical research, the most important metrics to monitor are:
+
+    • **Velocity trends** (sudden drop may indicate fatigue or injury)  
+    • **Spin rate stability**  
+    • **Release point consistency (height & side variance)**  
+    • **Pitch workload volume**  
+    • **Hard contact allowed (exit velocity spikes)**  
+    • **Vertical break changes (may indicate mechanical drift)**  
+
+    The strongest early injury predictors:
+    1. Release point drift
+    2. Spin rate decline
+    3. Velocity loss
+    """)
+
+    st.subheader("📈 Visualizations")
+
+    st.line_chart(df["velocity_mph"])
+    st.line_chart(df["spin_rate_rpm"])
+    st.line_chart(df["release_height_ft"])
+    st.line_chart(df["release_side_ft"])
+
+else:
+    st.info("Upload a CSV file to begin analysis.")
