@@ -1,20 +1,22 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Pitcher Health Dashboard", layout="wide")
 
-st.title("⚾ Pitcher Performance & Health Dashboard")
+# Load external HTML
+with open("index.html", "r") as file:
+    html_content = file.read()
 
-st.markdown("Upload your pitching CSV file to analyze averages and health indicators.")
+components.html(html_content, height=350)
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+st.markdown("---")
+
+uploaded_file = st.file_uploader("Upload Pitching CSV", type=["csv"])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-
-    st.subheader("Raw Data")
-    st.dataframe(df)
 
     st.subheader("📊 Averages")
 
@@ -29,9 +31,9 @@ if uploaded_file is not None:
     ]
 
     averages = df[numeric_cols].mean()
-    st.write(averages)
+    st.dataframe(averages)
 
-    st.subheader("📉 Release Point Variability (Injury Indicator)")
+    st.subheader("📉 Release Point Variability")
 
     release_height_std = df["release_height_ft"].std()
     release_side_std = df["release_side_ft"].std()
@@ -39,51 +41,30 @@ if uploaded_file is not None:
     st.write("Release Height Std Dev:", round(release_height_std, 3))
     st.write("Release Side Std Dev:", round(release_side_std, 3))
 
-    st.subheader("⚠️ Health Risk Flags")
+    st.subheader("⚠️ Health Risk Detection")
 
     velocity_drop = df["velocity_mph"].iloc[0] - df["velocity_mph"].iloc[-1]
     spin_drop = df["spin_rate_rpm"].iloc[0] - df["spin_rate_rpm"].iloc[-1]
     consistency_avg = df["release_consistency_score"].mean()
 
-    risk_messages = []
-
     if velocity_drop > 1.5:
-        risk_messages.append("⚠️ Significant velocity drop detected.")
-
+        st.error("Velocity drop detected.")
     if spin_drop > 150:
-        risk_messages.append("⚠️ Spin rate drop detected.")
-
+        st.error("Spin rate drop detected.")
     if release_height_std > 0.15:
-        risk_messages.append("⚠️ Release height variability increasing.")
-
+        st.error("Release height variability increasing.")
     if consistency_avg < 88:
-        risk_messages.append("⚠️ Low release consistency.")
+        st.error("Low release consistency.")
 
-    if len(risk_messages) == 0:
-        st.success("✅ No major red flags detected.")
-    else:
-        for msg in risk_messages:
-            st.error(msg)
+    if (
+        velocity_drop <= 1.5 and
+        spin_drop <= 150 and
+        release_height_std <= 0.15 and
+        consistency_avg >= 88
+    ):
+        st.success("No major injury red flags detected.")
 
-    st.subheader("🧠 Key Metrics to Keep Pitchers Healthy")
-
-    st.markdown("""
-    Based on sports science and biomechanical research, the most important metrics to monitor are:
-
-    • **Velocity trends** (sudden drop may indicate fatigue or injury)  
-    • **Spin rate stability**  
-    • **Release point consistency (height & side variance)**  
-    • **Pitch workload volume**  
-    • **Hard contact allowed (exit velocity spikes)**  
-    • **Vertical break changes (may indicate mechanical drift)**  
-
-    The strongest early injury predictors:
-    1. Release point drift
-    2. Spin rate decline
-    3. Velocity loss
-    """)
-
-    st.subheader("📈 Visualizations")
+    st.subheader("📈 Trends")
 
     st.line_chart(df["velocity_mph"])
     st.line_chart(df["spin_rate_rpm"])
@@ -91,4 +72,4 @@ if uploaded_file is not None:
     st.line_chart(df["release_side_ft"])
 
 else:
-    st.info("Upload a CSV file to begin analysis.")
+    st.info("Upload a CSV file to begin.")
