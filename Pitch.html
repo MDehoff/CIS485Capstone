@@ -1,18 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trackman Pitching Analysis Dashboard</title>
     <link rel="stylesheet" href="styles.css">
 
-    <!-- CSV Parser -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <script src="https://cdn.jsdelivr.net/npm/xgboost-js/dist/xgboost.min.js"></script>
-
 </head>
 <body>
 
@@ -21,19 +17,20 @@
 </header>
 
 <section class="control-panel">
+    <p>Upload a Trackman CSV file to be analyzed.</p>
     <input type="file" id="csvFile" accept=".csv">
 </section>
-
-<!-- TABS -->
+<!--Tabs Section-->
 <div class="tabs">
     <button class="tab-button active" onclick="openTab(event, 'dashboard')">Dashboard</button>
     <button class="tab-button" onclick="openTab(event, 'performance')">Performance</button>
     <button class="tab-button" onclick="openTab(event, 'comparison')">Pitch Comparison</button>
     <button class="tab-button" onclick="openTab(event, 'recommendations')">Recommendations</button>
     <button class="tab-button" onclick="openTab(event, 'mlmodel')">ML Strike Model</button>
+    <button class="tab-button" onclick="openTab(event, 'spray')">Spray Chart</button>
 </div>
 
-<!-- DASHBOARD TAB -->
+<!--Dashboard Tab-->
 <div id="dashboard" class="tab-content active">
     <div class="charts">
         <div class="chart-box">
@@ -48,49 +45,57 @@
     </div>
 </div>
 
-<!-- PERFORMANCE TAB -->
+
+<!--Performance Tab-->
 <div id="performance" class="tab-content">
     <h2 class="section-title">Performance Metrics</h2>
-    <div class="card-container">
+    <div id="performanceContainer" class="card-container">
         <div class="metric-card">
-            <h3>Average Velocity</h3>
-            <p id="avgVelocity">--</p>
+            <h3>Please upload a file...</h3>
         </div>
     </div>
 </div>
 
-<!-- COMPARISON TAB -->
+<!--Pitch Comparison Tab-->
 <div id="comparison" class="tab-content">
     <h2 class="section-title">Optimal Pitching Metrics Comparison</h2>
     <div id="pitchContainer"></div>
 </div>
 
-<!-- RECOMMENDATIONS TAB -->
+<!--Recomendations Tab-->
 <div id="recommendations" class="tab-content">
     <h2 class="section-title">Development Recommendations</h2>
     <div class="recommendation-box">
-        <ul id="recommendationsList"></ul>
+        <ul id="recommendationsList">
+            <li>Upload data to see personalized coaching insights.</li>
+        </ul>
     </div>
 </div>
 
-<!-- ML MODEL TAB -->
+<!--Machine Learning Model Tab-->
 <div id="mlmodel" class="tab-content">
     <h2 class="section-title">ML Strike vs Ball Probability Model</h2>
-
     <div class="card-container">
         <div class="metric-card">
             <h3>Predicted Strike Probability</h3>
             <p id="strikeProb">--</p>
         </div>
-
         <div class="metric-card">
             <h3>Predicted Ball Probability</h3>
             <p id="ballProb">--</p>
         </div>
     </div>
-
     <div class="chart-box" style="margin-top:30px;">
         <canvas id="mlChart"></canvas>
+    </div>
+</div>
+
+<!-- SPRAY CHART TAB -->
+<div id="spray" class="tab-content">
+    <h2 class="section-title">Hit Spray Chart</h2>
+
+    <div class="chart-box">
+        <canvas id="sprayChart"></canvas>
     </div>
 </div>
 
@@ -99,7 +104,7 @@
 let usageChart;
 let velocityChart;
 let mlChart;
-
+let sprayChart;
 const pitchNames = {
     "FF": "4-Seam Fastball",
     "SI": "Sinker",
@@ -113,36 +118,52 @@ const pitchNames = {
     "EP": "Eephus"
 };
 
+const pitchColors = {
+    "FF": "#d22d2d", // Red
+    "SI": "#fe9d31", // Orange
+    "FC": "#933f2c", // Brown
+    "CH": "#1db346", // Green
+    "ST": "#1a47bb", // Blue
+    "SL": "#ee00e1", // Pink
+    "CU": "#00d1ed"  // Sky Blue
+};
+const hitColors ={
+    "single": "#2ecc71", // Green
+    "double": "#3498db", // Blue
+    "triple": "#f1c40f", // Yellow
+    "home_run": "#9b59b6", // Purple
+    "field_out": "#95a5a6", // Gray  
+    "error": "#e74c3c"  // Red
+}
+//CSV Import Funciton
 document.getElementById("csvFile").addEventListener("change", function(event) {
     const file = event.target.files[0];
+    if (!file) return;
 
     Papa.parse(file, {
         header: true,
         dynamicTyping: true,
         complete: function(results) {
+            // Filter out rows without a pitch type (e.g., empty rows at end of CSV)
             const data = results.data.filter(row => row.pitch_type);
             generateDashboard(data);
         }
     });
 });
 
+//Dashboard Data Generation
 function generateDashboard(data) {
-
     const pitchCounts = {};
     const pitchVelocity = {};
     const pitchSpin = {};
     const pitchStrike = {};
     const pitchWhiff = {};
 
-    let totalVelocity = 0;
-    let velocityCount = 0;
-    let totalSpin = 0;
-    let spinCount = 0;
-    let strikeCount = 0;
-    let whiffCount = 0;
+    let totalVelocity = 0, velocityCount = 0;
+    let totalSpin = 0, spinCount = 0;
+    let strikeCount = 0, whiffCount = 0;
 
     data.forEach(row => {
-
         const pitch = row.pitch_type;
         const vel = row.release_speed;
         const spin = row.release_spin_rate;
@@ -158,23 +179,26 @@ function generateDashboard(data) {
 
         pitchCounts[pitch]++;
 
+        //Velocity Logic
         if (vel) {
             pitchVelocity[pitch].push(vel);
             totalVelocity += vel;
             velocityCount++;
         }
-
+        //Spin Logic
         if (spin) {
             pitchSpin[pitch].push(spin);
             totalSpin += spin;
             spinCount++;
         }
 
-        if (desc.includes("strike")) {
+        // Logic for Strikes (Includes Called, Swinging, Fouls)
+        if (desc.includes("strike") || desc.includes("foul")) {
             strikeCount++;
             pitchStrike[pitch]++;
         }
 
+        // Logic for Whiffs (Swining Strike/Pitches hitters missed in the zone)
         if (desc.includes("swinging_strike")) {
             whiffCount++;
             pitchWhiff[pitch]++;
@@ -183,22 +207,35 @@ function generateDashboard(data) {
 
     const pitchCodes = Object.keys(pitchCounts);
     const displayNames = pitchCodes.map(code => pitchNames[code] || code);
+    const chartColors = pitchCodes.map(code => pitchColors[code] || "#bdc3c7");
 
-    // Charts
+    generateSprayChart(data);
+
+
+    // Pie Chart Generation For Usage
     if (usageChart) usageChart.destroy();
     usageChart = new Chart(document.getElementById("usageChart"), {
         type: "pie",
         data: {
             labels: displayNames,
             datasets: [{
-                data: pitchCodes.map(code => pitchCounts[code])
+                data: pitchCodes.map(code => pitchCounts[code]),
+                backgroundColor: chartColors,
+                borderWidth: 1
             }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom' }
+            }
         }
     });
 
+    // Velocity Bar Chart Generation
     const avgVelocities = pitchCodes.map(code => {
         const arr = pitchVelocity[code];
-        return arr.reduce((a,b)=>a+b,0) / arr.length;
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
     });
 
     if (velocityChart) velocityChart.destroy();
@@ -208,47 +245,42 @@ function generateDashboard(data) {
             labels: displayNames,
             datasets: [{
                 label: "MPH",
-                data: avgVelocities
+                data: avgVelocities,
+                backgroundColor: chartColors,
+                borderWidth: 1
             }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { beginAtZero: false, min: 70 }
+            },
+            plugins: {
+                legend: { display: false }
+            }
         }
     });
 
-    // ===== PERFORMANCE TAB METRICS =====
-
+    // PERFORMANCE TAB METRICS
     document.getElementById("performance").innerHTML = `
         <h2 class="section-title">Performance Metrics</h2>
         <div class="card-container">
-            <div class="metric-card">
-                <h3>Total Pitches</h3>
-                <p>${data.length}</p>
-            </div>
-            <div class="metric-card">
-                <h3>Average Velocity</h3>
-                <p>${(totalVelocity/velocityCount).toFixed(2)} MPH</p>
-            </div>
-            <div class="metric-card">
-                <h3>Average Spin Rate</h3>
-                <p>${(totalSpin/spinCount).toFixed(0)} RPM</p>
-            </div>
-            <div class="metric-card">
-                <h3>Strike %</h3>
-                <p>${((strikeCount/data.length)*100).toFixed(1)}%</p>
-            </div>
-            <div class="metric-card">
-                <h3>Whiff %</h3>
-                <p>${((whiffCount/data.length)*100).toFixed(1)}%</p>
-            </div>
+            <div class="metric-card"><h3>Total Pitches</h3><p>${data.length}</p></div>
+            <div class="metric-card"><h3>Avg Velocity</h3><p>${(totalVelocity / velocityCount).toFixed(1)} MPH</p></div>
+            <div class="metric-card"><h3>Avg Spin Rate</h3><p>${(totalSpin / spinCount).toFixed(0)} RPM</p></div>
+            <div class="metric-card"><h3>Strike %</h3><p>${((strikeCount / data.length) * 100).toFixed(1)}%</p></div>
+            <div class="metric-card"><h3>Whiff %</h3><p>${((whiffCount / data.length) * 100).toFixed(1)}%</p></div>
         </div>
     `;
 
     generateComparison(pitchCodes, pitchVelocity, pitchSpin, pitchStrike, pitchWhiff, pitchCounts, data.length);
     generateRecommendations(data, strikeCount, whiffCount);
-
     trainStrikeModel(data);
+    generateSprayChart(data);
 }
 
+//Pitch Comparison Table Generation
 function generateComparison(pitchCodes, pitchVelocity, pitchSpin, pitchStrike, pitchWhiff, pitchCounts, totalPitches) {
-
     const optimalMetrics = {
         "FF": { velocity: 94, spin: 2300 },
         "SI": { velocity: 92, spin: 2100 },
@@ -261,63 +293,40 @@ function generateComparison(pitchCodes, pitchVelocity, pitchSpin, pitchStrike, p
     container.innerHTML = "";
 
     pitchCodes.forEach(code => {
-
         const velArr = pitchVelocity[code];
         const spinArr = pitchSpin[code];
-
-        const avgVel = velArr.reduce((a,b)=>a+b,0)/velArr.length;
-        const avgSpin = spinArr.length ? spinArr.reduce((a,b)=>a+b,0)/spinArr.length : 0;
-
-        const strikePct = ((pitchStrike[code]/pitchCounts[code])*100).toFixed(1);
-        const whiffPct = ((pitchWhiff[code]/pitchCounts[code])*100).toFixed(1);
-        const usagePct = ((pitchCounts[code]/totalPitches)*100).toFixed(1);
-
-        const pitchName = pitchNames[code] || code;
+        const avgVel = velArr.reduce((a, b) => a + b, 0) / velArr.length;
+        const avgSpin = spinArr.length ? spinArr.reduce((a, b) => a + b, 0) / spinArr.length : 0;
+        const strikePct = ((pitchStrike[code] / pitchCounts[code]) * 100).toFixed(1);
+        const whiffPct = ((pitchWhiff[code] / pitchCounts[code]) * 100).toFixed(1);
+        const usagePct = ((pitchCounts[code] / totalPitches) * 100).toFixed(1);
 
         const box = document.createElement("div");
         box.className = "pitch-box";
-
         box.innerHTML = `
-            <h3>${pitchName}</h3>
-            <p>Usage: ${usagePct}%</p>
-            <p>Velocity: ${avgVel.toFixed(1)} MPH 
-                ${optimalMetrics[code] ? `| Optimal: ${optimalMetrics[code].velocity} MPH` : ""}
-            </p>
-            <p>Spin Rate: ${avgSpin.toFixed(0)} RPM 
-                ${optimalMetrics[code] ? `| Optimal: ${optimalMetrics[code].spin} RPM` : ""}
-            </p>
-            <p>Strike %: ${strikePct}%</p>
-            <p>Whiff %: ${whiffPct}%</p>
+            <h3>${pitchNames[code] || code}</h3>
+            <p>Usage: <strong>${usagePct}%</strong></p>
+            <p>Velocity: ${avgVel.toFixed(1)} MPH ${optimalMetrics[code] ? `<br><small>Optimal: ${optimalMetrics[code].velocity} MPH</small>` : ""}</p>
+            <p>Spin Rate: ${avgSpin.toFixed(0)} RPM ${optimalMetrics[code] ? `<br><small>Optimal: ${optimalMetrics[code].spin} RPM</small>` : ""}</p>
+            <p>Strike %: ${strikePct}% | Whiff %: ${whiffPct}%</p>
         `;
-
         container.appendChild(box);
     });
 }
 
+//Coaching Recommendations
 function generateRecommendations(data, strikeCount, whiffCount) {
-
     const recList = document.getElementById("recommendationsList");
     recList.innerHTML = "";
+    const strikePct = (strikeCount / data.length) * 100;
+    const whiffPct = (whiffCount / data.length) * 100;
 
-    const strikePct = (strikeCount/data.length)*100;
-    const whiffPct = (whiffCount/data.length)*100;
-
-    if (strikePct < 60)
-        addRec("Improve command: Focus on fastball glove-side and repeatable mechanics.");
-
-    if (whiffPct < 20)
-        addRec("Increase swing-and-miss: Develop sharper breaking ball or increase fastball ride.");
-
-    if (strikePct > 68)
-        addRec("Excellent strike rate: Consider expanding zone more with two-strike pitches.");
-
-    if (whiffPct > 30)
-        addRec("Strong swing-and-miss ability: Sequence breaking balls off elevated fastballs.");
+    if (strikePct < 60) addRec("Improve command: Focus on fastball glove-side consistency.");
+    if (whiffPct < 20) addRec("Increase swing-and-miss: Focus on late-breaking movement on sliders.");
+    if (strikePct > 68) addRec("Elite strike rate: Try attacking the edges of the zone more.");
 
     addRec("Incorporate lower-body power training to increase velocity.");
     addRec("Work on pitch tunneling to improve deception.");
-    addRec("Refine off-speed grip to improve spin efficiency.");
-    addRec("Use high-speed video to evaluate release consistency.");
 
     function addRec(text) {
         const li = document.createElement("li");
@@ -326,213 +335,107 @@ function generateRecommendations(data, strikeCount, whiffCount) {
     }
 }
 
+//Linear Regression Model
 function trainStrikeModel(data) {
+    const cleanData = data.filter(row => row.release_speed && row.release_spin_rate && (row.description.includes("strike") || row.description === "ball"));
+    if (cleanData.length < 10) return;
 
-    // ===== 1️⃣ CLEAN DATA =====
-    const cleanData = data.filter(row =>
-        row.release_speed &&
-        row.release_spin_rate &&
-        row.plate_x &&
-        row.plate_z &&
-        row.pfx_x &&
-        row.pfx_z &&
-        (row.description.includes("strike") || row.description === "ball")
-    );
+    const X = [], y = [];
+    cleanData.forEach(row => {
+        X.push([row.release_speed, row.release_spin_rate]);
+        y.push(row.description.includes("strike") ? 1 : 0);
+    });
 
-    if (cleanData.length < 20) return;
+    let weights = [0, 0], bias = 0, lr = 0.0000001;
+    function sigmoid(z) { return 1 / (1 + Math.exp(-z)); }
 
-    const X = cleanData.map(row => [
-        row.release_speed,
-        row.release_spin_rate,
-        row.plate_x,
-        row.plate_z,
-        row.pfx_x,
-        row.pfx_z
-    ]);
-
-    const y = cleanData.map(row =>
-        row.description.includes("strike") ? 1 : 0
-    );
-
-    // ===== 2️⃣ NORMALIZE FEATURES =====
-    const means = [];
-    const stds = [];
-
-    for (let j = 0; j < X[0].length; j++) {
-        const col = X.map(r => r[j]);
-        const mean = col.reduce((a,b)=>a+b,0)/col.length;
-        const std = Math.sqrt(col.reduce((a,b)=>a+(b-mean)**2,0)/col.length);
-
-        means.push(mean);
-        stds.push(std);
-
+    for (let iter = 0; iter < 1000; iter++) {
+        let dw = [0, 0], db = 0;
         for (let i = 0; i < X.length; i++) {
-            X[i][j] = (X[i][j] - mean) / (std || 1);
+            const z = weights[0] * X[i][0] + weights[1] * X[i][1] + bias;
+            const pred = sigmoid(z);
+            const error = pred - y[i];
+            dw[0] += error * X[i][0]; dw[1] += error * X[i][1]; db += error;
         }
+        weights[0] -= lr * dw[0]; weights[1] -= lr * dw[1]; bias -= lr * db;
     }
 
-    // ===== 3️⃣ GRADIENT BOOSTING (XGBoost-style simplified) =====
-    const nEstimators = 50;
-    const learningRate = 0.1;
-    const trees = [];
+    const avgVel = cleanData.reduce((a, b) => a + b.release_speed, 0) / cleanData.length;
+    const avgSpin = cleanData.reduce((a, b) => a + b.release_spin_rate, 0) / cleanData.length;
+    const prob = sigmoid(weights[0] * avgVel + weights[1] * avgSpin + bias);
 
-    function sigmoid(z) {
-        return 1 / (1 + Math.exp(-z));
-    }
+    document.getElementById("strikeProb").innerText = (prob * 100).toFixed(1) + "%";
+    document.getElementById("ballProb").innerText = ((1 - prob) * 100).toFixed(1) + "%";
 
-    let preds = new Array(X.length).fill(0);
-
-    for (let m = 0; m < nEstimators; m++) {
-
-        const residuals = y.map((val, i) =>
-            val - sigmoid(preds[i])
-        );
-
-        let bestFeature = 0;
-        let bestThreshold = 0;
-        let bestError = Infinity;
-
-        for (let f = 0; f < X[0].length; f++) {
-
-            const values = X.map(r => r[f]);
-            const threshold = values.reduce((a,b)=>a+b,0)/values.length;
-
-            let error = 0;
-
-            for (let i = 0; i < X.length; i++) {
-                const prediction = X[i][f] > threshold ? 1 : -1;
-                error += (residuals[i] - prediction) ** 2;
-            }
-
-            if (error < bestError) {
-                bestError = error;
-                bestFeature = f;
-                bestThreshold = threshold;
-            }
-        }
-
-        trees.push({feature: bestFeature, threshold: bestThreshold});
-
-        for (let i = 0; i < X.length; i++) {
-            const update =
-                X[i][bestFeature] > bestThreshold ? 1 : -1;
-            preds[i] += learningRate * update;
-        }
-    }
-
-    // ===== 4️⃣ PREDICT EVERY PITCH =====
-    let pitchProbabilities = [];
-
-    for (let i = 0; i < X.length; i++) {
-
-        let score = 0;
-
-        trees.forEach(tree => {
-            const val =
-                X[i][tree.feature] > tree.threshold ? 1 : -1;
-            score += learningRate * val;
-        });
-
-        const prob = sigmoid(score);
-        pitchProbabilities.push(prob);
-
-        // attach probability to pitch object
-        cleanData[i].strike_probability = prob;
-    }
-
-    // ===== 5️⃣ METRICS =====
-    const avgStrikeProb =
-        pitchProbabilities.reduce((a,b)=>a+b,0) / pitchProbabilities.length;
-
-    const actualStrikeRate =
-        y.reduce((a,b)=>a+b,0) / y.length;
-
-    // ===== 6️⃣ UPDATE ML TAB CARDS =====
-    document.getElementById("strikeProb").innerText =
-        (avgStrikeProb * 100).toFixed(2) + "%";
-
-    document.getElementById("ballProb").innerText =
-        ((1 - avgStrikeProb) * 100).toFixed(2) + "%";
-
-    // ===== 7️⃣ UPDATE CHART =====
     if (mlChart) mlChart.destroy();
-
     mlChart = new Chart(document.getElementById("mlChart"), {
         type: "bar",
         data: {
-            labels: ["Expected Strike %", "Actual Strike %"],
+            labels: ["Strike", "Ball"],
+            datasets: [{ label: "Probability %", data: [prob * 100, (1 - prob) * 100], backgroundColor: ['#2980b9', '#bdc3c7'] }]
+        },
+        options: { scales: { y: { beginAtZero: true, max: 100 } } }
+    });
+}
+
+//Tab Navigation Logic
+function openTab(evt, tabName) {
+    const contents = document.getElementsByClassName("tab-content");
+    const buttons = document.getElementsByClassName("tab-button");
+    for (let i = 0; i < contents.length; i++) contents[i].classList.remove("active");
+    for (let i = 0; i < buttons.length; i++) buttons[i].classList.remove("active");
+    document.getElementById(tabName).classList.add("active");
+    evt.currentTarget.classList.add("active");
+}
+
+//Batted Ball Spray Chart Logic (Where hits went on the field)
+function generateSprayChart(data) {
+
+    // ✅ FIXED: use events instead of "hit"
+    const hits = data.filter(row =>
+        row.hc_x &&
+        row.hc_y &&
+        row.events && (
+            row.events === "single" ||
+            row.events === "double" ||
+            row.events === "triple" ||
+            row.events === "home_run"
+        )
+    );
+
+    console.log("Spray chart hits:", hits.length); // DEBUG
+
+    const sprayData = hits.map(row => ({
+        x: row.hc_x,
+        y: row.hc_y
+    }));
+
+    if (sprayChart) sprayChart.destroy();
+
+    sprayChart = new Chart(document.getElementById("sprayChart"), {
+        type: "scatter",
+        data: {
             datasets: [{
-                label: "Percentage",
-                data: [
-                    avgStrikeProb * 100,
-                    actualStrikeRate * 100
-                ]
+                label: "Hit Locations",
+                data: sprayData,
+                pointRadius: 5
             }]
         },
         options: {
             scales: {
+                x: {
+                    title: { display: true, text: "Left → Right Field" },
+                    min: 0,
+                    max: 250
+                },
                 y: {
-                    beginAtZero: true,
-                    max: 100
+                    title: { display: true, text: "Distance" },
+                    min: 0,
+                    max: 250
                 }
             }
         }
     });
-}
-
-    function sigmoid(z){ return 1/(1+Math.exp(-z)); }
-
-    for(let iter=0; iter<1000; iter++){
-        let dw=[0,0], db=0;
-        for(let i=0;i<X.length;i++){
-            const z=weights[0]*X[i][0]+weights[1]*X[i][1]+bias;
-            const pred=sigmoid(z);
-            const error=pred-y[i];
-            dw[0]+=error*X[i][0];
-            dw[1]+=error*X[i][1];
-            db+=error;
-        }
-        weights[0]-=lr*dw[0];
-        weights[1]-=lr*dw[1];
-        bias-=lr*db;
-    }
-
-    const avgVel = cleanData.reduce((a,b)=>a+b.release_speed,0)/cleanData.length;
-    const avgSpin = cleanData.reduce((a,b)=>a+b.release_spin_rate,0)/cleanData.length;
-
-    const z = weights[0]*avgVel + weights[1]*avgSpin + bias;
-    const strikeProb = sigmoid(z);
-    const ballProb = 1-strikeProb;
-
-    document.getElementById("strikeProb").innerText = (strikeProb*100).toFixed(2)+"%";
-    document.getElementById("ballProb").innerText = (ballProb*100).toFixed(2)+"%";
-
-    if (mlChart) mlChart.destroy();
-    mlChart = new Chart(document.getElementById("mlChart"), {
-        type:"bar",
-        data:{
-            labels:["Strike","Ball"],
-            datasets:[{
-                label:"Probability %",
-                data:[strikeProb*100, ballProb*100]
-            }]
-        },
-        options:{scales:{y:{beginAtZero:true,max:100}}}
-    });
-
-
-function openTab(evt, tabName) {
-    const contents = document.getElementsByClassName("tab-content");
-    const buttons = document.getElementsByClassName("tab-button");
-
-    for (let i = 0; i < contents.length; i++)
-        contents[i].classList.remove("active");
-
-    for (let i = 0; i < buttons.length; i++)
-        buttons[i].classList.remove("active");
-
-    document.getElementById(tabName).classList.add("active");
-    evt.currentTarget.classList.add("active");
 }
 
 </script>
