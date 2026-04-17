@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Basic page setup -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trackman Pitching Analysis Dashboard</title>
+
+    <!-- External CSS file for styling -->
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- PapaParse: Used to read and parse CSV files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- Chart.js: Used to generate graphs and charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<!-- Page Header -->
+<header class="header">
+    <h1>Trackman Pitching Analysis Dashboard</h1>
+</header>
+
+<!-- File Upload Section -->
+<section class="control-panel">
+    <p>Upload a Trackman CSV file to be analyzed.</p>
+
+    <!-- File input that accepts only CSV files -->
+    <input type="file" id="csvFile" accept=".csv">
+</section>
+
+<!-- Navigation Tabs -->
+<div class="tabs">
+    <!-- Each button switches between different dashboard sections -->
+    <button class="tab-button active" onclick="openTab(event, 'dashboard')">Dashboard</button>
+    <button class="tab-button" onclick="openTab(event, 'performance')">Performance</button>
+    <button class="tab-button" onclick="openTab(event, 'comparison')">Pitch Comparison</button>
+    <button class="tab-button" onclick="openTab(event, 'recommendations')">Recommendations</button>
+    <button class="tab-button" onclick="openTab(event, 'mlmodel')">ML Strike Model</button>
+</div>
+
+<!-- ================= DASHBOARD TAB ================= -->
+<div id="dashboard" class="tab-content active">
+    <div class="charts">
+
+        <!-- Pitch usage pie chart -->
+        <div class="chart-box">
+            <h2>Pitch Usage Mix (%)</h2>
+            <canvas id="usageChart"></canvas>
+        </div>
+
+        <!-- Velocity bar chart -->
+        <div class="chart-box">
+            <h2>Average Release Speed (MPH)</h2>
+            <canvas id="velocityChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Spray chart (hit locations) -->
+    <div class="chart-box full-width" style="margin-top: 20px;">
+        <h2>Spray Chart on Batted Balls</h2>
+        <canvas id="sprayChart"></canvas>
+    </div>
+</div>
+
+<!-- ================= PERFORMANCE TAB ================= -->
+<div id="performance" class="tab-content">
+    <h2 class="section-title">Performance Metrics</h2>
+
+    <!-- Container where performance stats will be inserted dynamically -->
+    <div id="performanceContainer" class="card-container">
+        <div class="metric-card">
+            <h3>Please upload a file...</h3>
+        </div>
+    </div>
+</div>
+
+<!-- ================= COMPARISON TAB ================= -->
+<div id="comparison" class="tab-content">
+    <h2 class="section-title">Optimal Pitching Metrics Comparison</h2>
+    <div id="pitchContainer"></div>
+</div>
+
+<!-- ================= RECOMMENDATIONS TAB ================= -->
+<div id="recommendations" class="tab-content">
+    <h2 class="section-title">Development Recommendations</h2>
+
+    <!-- List where recommendations will be dynamically added -->
+    <div class="recommendation-box">
+        <ul id="recommendationsList">
+            <li>Upload data to see personalized coaching insights.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- ================= MACHINE LEARNING TAB ================= -->
+<div id="mlmodel" class="tab-content">
+    <h2 class="section-title">ML Strike vs Ball Probability Model</h2>
+
+    <!-- Displays model predictions -->
+    <div class="card-container">
+        <div class="metric-card">
+            <h3>Predicted Strike Probability</h3>
+            <p id="strikeProb">--</p>
+        </div>
+        <div class="metric-card">
+            <h3>Predicted Ball Probability</h3>
+            <p id="ballProb">--</p>
+        </div>
+    </div>
+
+    <!-- Chart showing strike vs ball probabilities -->
+    <div class="chart-box" style="margin-top:30px;">
+        <canvas id="mlChart"></canvas>
+    </div>
+</div>
+
+<script>
+
+/* ================= GLOBAL VARIABLES ================= */
+
+// Chart objects (stored globally so we can destroy/recreate them)
+let usageChart;
+let velocityChart;
+let mlChart;
+let sprayChart;
+
+/* Mapping pitch codes to readable names */
+const pitchNames = {
+    "FF": "4-Seam Fastball",
+    "SI": "Sinker",
+    "FC": "Cutter",
+    "CH": "Changeup",
+    "SL": "Slider",
+    "CU": "Curveball",
+    "ST": "Sweeper",
+    "FS": "Splitter",
+    "KC": "Knuckle Curve",
+    "EP": "Eephus"
+};
+
+/* Color mapping for pitch types (used in charts) */
+const pitchColors = {
+    "FF": "#d22d2d",
+    "SI": "#fe9d31",
+    "FC": "#933f2c",
+    "CH": "#1db346",
+    "ST": "#1a47bb",
+    "SL": "#ee00e1",
+    "CU": "#00d1ed"
+};
+
+/* Colors for different hit outcomes in spray chart */
+const hitColors ={
+    "single": "#2ecc71",
+    "double": "#3498db",
+    "triple": "#f1c40f",
+    "home_run": "#9b59b6",
+    "field_out": "#95a5a6",
+    "error": "#e74c3c"
+}
+
+/* ================= CSV FILE IMPORT ================= */
+
+/* Triggered when user selects a CSV file */
+document.getElementById("csvFile").addEventListener("change", function(event) {
+
+    // Get the uploaded file
+    const file = event.target.files[0];
+
+    // Stop if no file selected
+    if (!file) return;
+
+    // Parse CSV file using PapaParse
+    Papa.parse(file, {
+        header: true,            // Treat first row as column headers
+        dynamicTyping: true,     // Convert numbers automatically
+        complete: function(results) {
+
+            // Remove empty rows or rows without pitch type
+            const data = results.data.filter(row => row.pitch_type);
+
+            // Generate full dashboard
+            generateDashboard(data);
+        }
+    });
+});
+
+/* ================= MAIN DASHBOARD FUNCTION ================= */
+
+/* Processes raw CSV data and generates all charts + metrics */
+function generateDashboard(data) {
+
+    // Objects to store aggregated data
+    const pitchCounts = {};
+    const pitchVelocity = {};
+    const pitchSpin = {};
+    const pitchStrike = {};
+    const pitchWhiff = {};
+
+    // Totals for overall metrics
+    let totalVelocity = 0, velocityCount = 0;
+    let totalSpin = 0, spinCount = 0;
+    let strikeCount = 0, whiffCount = 0;
+
+    // Loop through every pitch in dataset
+    data.forEach(row => {
+
+        const pitch = row.pitch_type;
+        const vel = row.release_speed;
+        const spin = row.release_spin_rate;
+        const desc = row.description || "";
+
+        // Initialize values for each pitch type
+        if (!pitchCounts[pitch]) {
+            pitchCounts[pitch] = 0;
+            pitchVelocity[pitch] = [];
+            pitchSpin[pitch] = [];
+            pitchStrike[pitch] = 0;
+            pitchWhiff[pitch] = 0;
+        }
+
+        // Count pitch usage
+        pitchCounts[pitch]++;
+
+        /* ===== Velocity Tracking ===== */
+        if (vel) {
+            pitchVelocity[pitch].push(vel);
+            totalVelocity += vel;
+            velocityCount++;
+        }
+
+        /* ===== Spin Rate Tracking ===== */
+        if (spin) {
+            pitchSpin[pitch].push(spin);
+            totalSpin += spin;
+            spinCount++;
+        }
+
+        /* ===== Strike Detection ===== */
+        if (desc.includes("strike") || desc.includes("foul")) {
+            strikeCount++;
+            pitchStrike[pitch]++;
+        }
+
+        /* ===== Whiff Detection ===== */
+        if (desc.includes("swinging_strike")) {
+            whiffCount++;
+            pitchWhiff[pitch]++;
+        }
+    });
+
+    /* Convert pitch codes into display labels */
+    const pitchCodes = Object.keys(pitchCounts);
+    const displayNames = pitchCodes.map(code => pitchNames[code] || code);
+    const chartColors = pitchCodes.map(code => pitchColors[code] || "#bdc3c7");
+
+    /* ================= PIE CHART (Pitch Usage) ================= */
+    if (usageChart) usageChart.destroy();
+
+    usageChart = new Chart(document.getElementById("usageChart"), {
+        type: "pie",
+        data: {
+            labels: displayNames,
+            datasets: [{
+                data: pitchCodes.map(code => pitchCounts[code]),
+                backgroundColor: chartColors
+            }]
+        }
+    });
+
+    /* ================= BAR CHART (Velocity) ================= */
+
+    // Calculate average velocity per pitch type
+    const avgVelocities = pitchCodes.map(code => {
+        const arr = pitchVelocity[code];
+        return arr.reduce((a, b) => a + b, 0) / arr.length;
+    });
+
+    if (velocityChart) velocityChart.destroy();
+
+    velocityChart = new Chart(document.getElementById("velocityChart"), {
+        type: "bar",
+        data: {
+            labels: displayNames,
+            datasets: [{
+                label: "MPH",
+                data: avgVelocities,
+                backgroundColor: chartColors
+            }]
+        }
+    });
+
+    /* ================= PERFORMANCE METRICS ================= */
+
+    document.getElementById("performance").innerHTML = `
+        <h2 class="section-title">Performance Metrics</h2>
+        <div class="card-container">
+            <div class="metric-card"><h3>Total Pitches</h3><p>${data.length}</p></div>
+            <div class="metric-card"><h3>Avg Velocity</h3><p>${(totalVelocity / velocityCount).toFixed(1)} MPH</p></div>
+            <div class="metric-card"><h3>Avg Spin Rate</h3><p>${(totalSpin / spinCount).toFixed(0)} RPM</p></div>
+            <div class="metric-card"><h3>Strike %</h3><p>${((strikeCount / data.length) * 100).toFixed(1)}%</p></div>
+            <div class="metric-card"><h3>Whiff %</h3><p>${((whiffCount / data.length) * 100).toFixed(1)}%</p></div>
+        </div>
+    `;
+
+    // Call additional features
+    generateComparison(pitchCodes, pitchVelocity, pitchSpin, pitchStrike, pitchWhiff, pitchCounts, data.length);
+    generateRecommendations(data, strikeCount, whiffCount);
+    trainStrikeModel(data);
+    generateSprayChart(data);
+}
+
+/* ================= TAB NAVIGATION ================= */
+
+/* Switches between tabs when user clicks buttons */
+function openTab(evt, tabName) {
+
+    const contents = document.getElementsByClassName("tab-content");
+    const buttons = document.getElementsByClassName("tab-button");
+
+    // Hide all tabs
+    for (let i = 0; i < contents.length; i++) {
+        contents[i].classList.remove("active");
+    }
+
+    // Remove active button highlight
+    for (let i = 0; i < buttons.length; i++) {
+        buttons[i].classList.remove("active");
+    }
+
+    // Show selected tab
+    document.getElementById(tabName).classList.add("active");
+
+    // Highlight clicked button
+    evt.currentTarget.classList.add("active");
+}
+
+</script>
+</body>
+</html>
